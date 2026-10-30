@@ -1,197 +1,306 @@
-import asyncio
-import random
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-BOT_TOKEN = "ВАШ_ТОКЕН_ОТ_BOTFATHER"  # <-- вставьте сюда токен от @BotFather
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# Хранилище активных игр: user_id -> {board, opened, lost, won, score, mines_count}
-games = {}
-
-def generate_board(rows=5, cols=5, mine_count=3):
-    total_cells = rows * cols
-    mine_positions = set(random.sample(range(total_cells), mine_count))
-    board = [[False for _ in range(cols)] for _ in range(rows)]
-    for pos in mine_positions:
-        r, c = divmod(pos, cols)
-        board[r][c] = True
-    return board
-
-def create_keyboard(user_id, show_all=False):
-    game = games.get(user_id)
-    if not game:
-        return None
-    
-    board = game["board"]
-    opened = game["opened"]
-    rows, cols = len(board), len(board)
-    builder = InlineKeyboardBuilder()
-    
-    for r in range(rows):
-        for c in range(cols):
-            if opened[r][c] or show_all:
-                if board[r][c]:
-                    text = "💣"
-                    callback = "ignore"
-                else:
-                    text = "💎"
-                    callback = "ignore"
-            else:
-                text = "❓"
-                callback = f"cell_{r}_{c}"
-            builder.button(text=text, callback_data=callback)
-        builder.adjust(cols)
-    
-    if game["won"]:
-        builder.button(text="✨ Забрать очки", callback_data="collect")
-    elif game["lost"]:
-        builder.button(text="🔙 Главное меню", callback_data="menu")
-    else:
-        builder.button(text="🔙 Главное меню", callback_data="menu")
-    
-    return builder.as_markup()
-
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🎮 Играть", callback_data="play")
-    builder.button(text="ℹ️ Правила", callback_data="rules")
-    await message.answer(
-        "Добро пожаловать в мини‑игру «Mines»!\n\n"
-        "Это бесплатная версия — без реальных ставок. "
-        "Открывайте клетки, избегайте мин и набирайте очки!",
-        reply_markup=builder.as_markup()
-    )
-
-@dp.callback_query(F.data == "play")
-async def cb_play(callback: CallbackQuery):
-    builder = InlineKeyboardBuilder()
-    for mines in [2, 3, 5, 7]:
-        builder.button(text=f"💥 {mines} мин", callback_data=f"mines_{mines}")
-    builder.adjust(2)
-    await callback.message.edit_text(
-        "Выберите количество мин на поле (чем больше — тем выше риск и награда):",
-        reply_markup=builder.as_markup()
-    )
-
-@dp.callback_query(F.data.startswith("mines_"))
-async def cb_mines(callback: CallbackQuery):
-    mines_count = int(callback.data.split("_")) [1](https://github.com/Git-CmdServ/Mines)
-    user_id = callback.from_user.id
-    rows, cols = 5, 5
-    
-    game = {
-        "board": generate_board(rows, cols, mines_count),
-        "opened": [[False for _ in range(cols)] for _ in range(cols)],
-        "mines_count": mines_count,
-        "lost": False,
-        "won": False,
-        "score": 0
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Mines: Diamonds Edition</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --cell: #1a1a22;
+      --accent: #00ff9d;
+      --danger: #ff4757;
+      --text: #ffffff;
+      --gold: #f1c40f;
     }
-    games[user_id] = game
-    
-    await callback.message.edit_text(
-        f"Игра началась! На поле {rows}×{cols} спрятано {mines_count} мин.\n\n"
-        "Открывайте клетки и собирайте алмазы 💎. Избегайте бомб 💣!",
-        reply_markup=create_keyboard(user_id)
-    )
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 10px 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #2a2a35;
+    }
+    .stat-box {
+      display: flex;
+      gap: 12px;
+    }
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+    }
+    .star {
+      color: var(--gold);
+    }
+    .grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      padding: 12px;
+      overflow: auto;
+    }
+    .cell {
+      aspect-ratio: 1;
+      background: var(--cell);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .cell.mine {
+      background: var(--danger);
+      color: white;
+    }
+    .cell.safe {
+      background: #2d2d3a;
+      color: var(--accent);
+    }
+    .controls {
+      padding: 12px;
+      background: var(--bg);
+      border-top: 1px solid #2a2a35;
+    }
+    .bet-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .bet-input {
+      flex: 1;
+      background: #2d2d3a;
+      border: none;
+      color: white;
+      padding: 10px;
+      border-radius: 8px;
+      text-align: right;
+      font-size: 16px;
+    }
+    .btn-inc-dec {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      border: none;
+      background: #2d2d3a;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-bet {
+      width: 100%;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 14px;
+      border-radius: 12px;
+      font-weight: bold;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .multipliers {
+      display: flex;
+      gap: 8px;
+      padding: 0 12px 12px;
+      flex-wrap: wrap;
+    }
+    .mult-badge {
+      background: #2d2d3a;
+      padding: 6px 10px;
+      border-radius: 20px;
+      font-size: 13px;
+    }
+    .autobet-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+    }
+    .toggle {
+      width: 40px;
+      height: 22px;
+      border-radius: 11px;
+      background: #2d2d3a;
+      position: relative;
+      cursor: pointer;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle.active::after {
+      transform: translateX(18px);
+      background: var(--accent);
+    }
+    .mines-count {
+      display: flex;
+      gap: 8px;
+      padding: 0 12px 12px;
+      flex-wrap: wrap;
+    }
+    .mine-option {
+      background: #2d2d3a;
+      padding: 6px 10px;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .mine-option.selected {
+      background: var(--accent);
+      color: #000;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span>Назад</span>
+    <div class="stat-box">
+      <div class="stat"><span class="star">★</span> <span id="balance">1000</span></div>
+      <div class="stat"><span>3</span></div>
+    </div>
+  </header>
 
-@dp.callback_query(F.data.startswith("cell_"))
-async def cb_cell(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    if user_id not in games:
-        await callback.answer("Игра не найдена. Нажмите /start", show_alert=True)
-        return
-    
-    game = games[user_id]
-    if game["lost"] or game["won"]:
-        await callback.answer("Игра уже завершена!", show_alert=True)
-        return
-    
-    r, c = map(int, callback.data.split("_")[1:])
-    game["opened"][r][c] = True
-    
-    if game["board"][r][c]:
-        game["lost"] = True
-        await callback.message.edit_text(
-            "💥 БА-БАХ! Вы попали на мину!\n\n"
-            "Не повезло, но можно попробовать снова.",
-            reply_markup=create_keyboard(user_id, show_all=True)
-        )
-    else:
-        base_score = 10
-        multiplier = {2: 1.0, 3: 1.2, 5: 1.5, 7: 2.0}.get(game["mines_count"], 1.0)
-        game["score"] += int(base_score * multiplier)
-        
-        total_cells = len(game["board"]) * len(game["board"])
-        opened_safe = sum(
-            1 for i in range(len(game["board"])) 
-            for j in range(len(game["board"])) 
-            if game["opened"][i][j] and not game["board"][i][j]
-        )
-        safe_cells = total_cells - game["mines_count"]
-        
-        if opened_safe == safe_cells:
-            game["won"] = True
-            await callback.message.edit_text(
-                f"🎉 Победа! Вы открыли все безопасные клетки!\n\n"
-                f"Ваш счёт: {game['score']} очков!",
-                reply_markup=create_keyboard(user_id)
-            )
-        else:
-            await callback.message.edit_text(
-                f"✅ Безопасно! Вы нашли алмаз!\n\n"
-                f"Текущий счёт: {game['score']} очков.",
-                reply_markup=create_keyboard(user_id)
-            )
+  <div class="grid" id="grid"></div>
 
-@dp.callback_query(F.data == "collect")
-async def cb_collect(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    if user_id in games and games[user_id]["won"]:
-        score = games[user_id]["score"]
-        del games[user_id]
-        await callback.message.edit_text(
-            f"✨ Вы забрали свои {score} очков!\n\n"
-            "Хотите сыграть ещё?",
-            reply_markup=InlineKeyboardBuilder().button(text="🎮 Играть снова", callback_data="play").as_markup()
-        )
+  <div class="controls">
+    <div class="bet-row">
+      <input type="text" class="bet-input" id="betInput" value="25" readonly />
+      <button class="btn-inc-dec" onclick="changeBet(-10)">−</button>
+      <button class="btn-inc-dec" onclick="changeBet(10)">+</button>
+    </div>
+    <button class="btn-bet" id="betBtn" onclick="placeBet()">Bet ★</button>
 
-@dp.callback_query(F.data == "menu")
-async def cb_menu(callback: CallbackQuery):
-    if callback.from_user.id in games:
-        del games[callback.from_user.id]
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🎮 Играть", callback_data="play")
-    builder.button(text="ℹ️ Правила", callback_data="rules")
-    await callback.message.edit_text(
-        "Главное меню. Выберите действие:",
-        reply_markup=builder.as_markup()
-    )
+    <div class="autobet-row">
+      <label class="toggle" id="autobetToggle" onclick="toggleAutobet()"></label>
+      <span>Autobet</span>
+      <div style="margin-left: auto; display: flex; gap: 6px;">
+        <div class="mine-option">5</div>
+        <div class="mine-option">10</div>
+        <div class="mine-option">∞</div>
+      </div>
+    </div>
 
-@dp.callback_query(F.data == "rules")
-async def cb_rules(callback: CallbackQuery):
-    await callback.answer(
-        "Правила игры «Mines»:\n\n"
-        "1. Выберите количество мин (2, 3, 5 или 7).\n"
-        "2. Открывайте клетки по одной.\n"
-        "3. Если клетка безопасна — получите очки.\n"
-        "4. Если попадёте на мину — игра окончена.\n"
-        "5. Победа — когда открыты все безопасные клетки.",
-        show_alert=True
-    )
+    <div class="mines-count">
+      <div class="mine-option selected">2</div>
+      <div class="mine-option">3</div>
+      <div class="mine-option">5</div>
+      <div class="mine-option">7</div>
+    </div>
 
-@dp.callback_query(F.data == "ignore")
-async def cb_ignore(callback: CallbackQuery):
-    await callback.answer()
+    <div class="multipliers">
+      <span class="mult-badge">×1.07</span>
+      <span class="mult-badge">×1.23</span>
+      <span class="mult-badge">×1.41</span>
+      <span class="mult-badge">×1.64</span>
+      <span class="mult-badge">×1.91</span>
+    </div>
+  </div>
 
-async def main():
-    await dp.start_polling(bot)
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    const gridEl = document.getElementById('grid');
+    const balanceEl = document.getElementById('balance');
+    const betInput = document.getElementById('betInput');
+    const betBtn = document.getElementById('betBtn');
+    const autobetToggle = document.getElementById('autobetToggle');
+
+    let balance = 1000;
+    let bet = 25;
+    let minesCount = 3;
+    let autobet = false;
+    let gameActive = false;
+
+    function initGrid() {
+      gridEl.innerHTML = '';
+      const cells = 25;
+      const mineIndices = new Set();
+      while (mineIndices.size < minesCount) {
+        mineIndices.add(Math.floor(Math.random() * cells));
+      }
+      for (let i = 0; i < cells; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.index = i;
+        cell.dataset.isMine = mineIndices.has(i) ? 'true' : 'false';
+        cell.innerHTML = '♡';
+        cell.onclick = () => handleCellClick(cell);
+        gridEl.appendChild(cell);
+      }
+    }
+
+    function handleCellClick(cell) {
+      if (!gameActive || cell.classList.contains('safe') || cell.classList.contains('mine')) return;
+
+      if (cell.dataset.isMine === 'true') {
+        cell.classList.add('mine');
+        cell.innerHTML = '💣';
+        gameActive = false;
+        balanceEl.innerText = balance;
+        betBtn.disabled = false;
+        betBtn.innerText = 'Bet ★';
+      } else {
+        cell.classList.add('safe');
+        const multiplier = 1 + (Math.random() * 0.9); // простая логика множителя
+        balance += Math.floor(bet * multiplier);
+        balanceEl.innerText = balance;
+        if (autobet) placeBet();
+      }
+    }
+
+    function placeBet() {
+      if (!gameActive) {
+        if (balance < bet) {
+          alert('Недостаточно алмазов!');
+          return;
+        }
+        balance -= bet;
+        balanceEl.innerText = balance;
+        gameActive = true;
+        betBtn.disabled = true;
+        betBtn.innerText = 'Playing...';
+        initGrid();
+      }
+    }
+
+    function changeBet(delta) {
+      let val = parseInt(betInput.value) || 0;
+      val = Math.max(1, val + delta);
+      betInput.value = val;
+      bet = val;
+    }
+
+    function toggleAutobet() {
+      autobet = !autobet;
+      autobetToggle.classList.toggle('active', autobet);
+    }
+
+    // Инициализация
+    initGrid();
+  </script>
+</body>
+</html>
